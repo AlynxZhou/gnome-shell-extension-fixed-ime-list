@@ -38,4 +38,4 @@ Upstream was not MRU before some one added this "feature", and it will cost a lo
 
 # GNOME Shell upgraded and it stopped working!
 
-Send a issue, I will upgrade it if I am still using it.
+Send an issue, I will upgrade it if I am still using it.
