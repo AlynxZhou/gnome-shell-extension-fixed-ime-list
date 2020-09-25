@@ -1,0 +1,9 @@
+{
+  "name": "Fixed IME List",
+  "description": "Make the IME list in fixed sequence instead of MRU.",
+  "uuid": "fixedimelist@alynx.one",
+  "url": "https://github.com/AlynxZhou/gnome-shell-extension-fixed-ime-list/",
+  "shell-version": [
+    "3.36"
+  ]
+}
