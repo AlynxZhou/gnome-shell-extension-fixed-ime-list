@@ -31,8 +31,6 @@ function init() {
 }
 
 function enable() {
-  // This function is used to get the running instance of InputSourceManager.
-  const _inputSourceManager = getInputSourceManager();
   // A dirty hack to stop updating the annoying MRU IME list.
   InputSourceManager.prototype._currentInputSourceChangedOrig =
     InputSourceManager.prototype._currentInputSourceChanged;
@@ -110,7 +108,7 @@ function enable() {
     // But we need to set popup current index to current source.
     // I think it's OK to start from 0 if we don't have current source.
     if (this._currentSource != null) {
-      popup._selectedIndex = this._currentSource.index;
+      popup._selectedIndex = this._mruSources.indexOf(this._currentSource);
     }
 
     if (!popup.show(
@@ -121,25 +119,7 @@ function enable() {
       popup.fadeAndDestroy();
     }
   };
-  // Reloading keybindings is needed because we changed the bound callback.
-  Main.wm.removeKeybinding("switch-input-source");
-  _inputSourceManager._keybindingAction =
-    Main.wm.addKeybinding(
-      "switch-input-source",
-      new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
-      Meta.KeyBindingFlags.NONE,
-      Shell.ActionMode.ALL,
-      InputSourceManager.prototype._switchInputSource.bind(_inputSourceManager)
-    );
-  Main.wm.removeKeybinding("switch-input-source-backward");
-  _inputSourceManager._keybindingActionBackward =
-    Main.wm.addKeybinding(
-      "switch-input-source-backward",
-      new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
-      Meta.KeyBindingFlags.IS_REVERSED,
-      Shell.ActionMode.ALL,
-      InputSourceManager.prototype._switchInputSource.bind(_inputSourceManager)
-    );
+
   // A dirty hack to stop loading MRU IME list from settings.
   // This is needed for restoring the user's sequence in settings when enabling.
   InputSourceManager.prototype._updateMruSourcesOrig =
@@ -200,30 +180,133 @@ function enable() {
     */
     this._mruSources = mruSources.concat(sourcesList);
   };
+
+  // A dirty hack to stop updating MRU settings.
+  // Because we stop updating MRU sources, and I don't want to touch settings.
+  InputSourceManager.prototype._updateMruSettingsOrig =
+    InputSourceManager.prototype._updateMruSettings;
+  InputSourceManager.prototype._updateMruSettings = function () {
+    // If IBus is not ready we don't have a full picture of all
+    // the available sources, so don't update the setting
+    if (!this._ibusReady) {
+      return;
+    }
+
+    // If IBus is temporarily disabled, don't update the setting
+    if (this._disableIBus) {
+      return;
+    }
+
+    // Noooooooooooo! Stop doing this!
+    /*
+    let sourcesList = [];
+    for (let i = 0; i < this._mruSources.length; ++i) {
+      let source = this._mruSources[i];
+      sourcesList.push([source.type, source.id]);
+    }
+
+    this._settings.mruSources = sourcesList;
+    */
+  }
+
+  // This function is used to get the running instance of InputSourceManager.
+  const _inputSourceManager = getInputSourceManager();
+
+  // Reloading keybindings is needed because we changed the bound callback.
+  Main.wm.removeKeybinding("switch-input-source");
+  _inputSourceManager._keybindingAction =
+    Main.wm.addKeybinding(
+      "switch-input-source",
+      new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
+      Meta.KeyBindingFlags.NONE,
+      Shell.ActionMode.ALL,
+      InputSourceManager.prototype._switchInputSource.bind(_inputSourceManager)
+    );
+  Main.wm.removeKeybinding("switch-input-source-backward");
+  _inputSourceManager._keybindingActionBackward =
+    Main.wm.addKeybinding(
+      "switch-input-source-backward",
+      new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
+      Meta.KeyBindingFlags.IS_REVERSED,
+      Shell.ActionMode.ALL,
+      InputSourceManager.prototype._switchInputSource.bind(_inputSourceManager)
+    );
+
   // The input source list may already be messed.
   // So we restore it.
+  _inputSourceManager._mruSources = [];
+  _inputSourceManager._mruSourcesBackup = null;
   _inputSourceManager._updateMruSources();
+  // Reset IME to the first because list was changed.
+  if (_inputSourceManager._mruSources.length > 0) {
+    _inputSourceManager._mruSources[0].activate(true);
+  }
 }
 
 function disable() {
-  if (InputSourceManager.prototype._currentInputSourceChangedOrig instanceof Function) {
+  if (
+    InputSourceManager.prototype._currentInputSourceChangedOrig instanceof
+      Function
+  ) {
     InputSourceManager.prototype._currentInputSourceChanged =
       InputSourceManager.prototype._currentInputSourceChangedOrig;
     InputSourceManager.prototype._currentInputSourceChangedOrig = undefined;
   }
+
   if (InputSourcePopup.prototype._initialSelectionOrig instanceof Function) {
     InputSourcePopup.prototype._initialSelection =
       InputSourcePopup.prototype._initialSelectionOrig;
     InputSourcePopup.prototype._initialSelectionOrig = undefined;
   }
+
   if (InputSourceManager.prototype._switchInputSourceOrig instanceof Function) {
     InputSourceManager.prototype._switchInputSourceSources =
       InputSourceManager.prototype._switchInputSourceOrig;
     InputSourceManager.prototype._switchInputSourceOrig = undefined;
   }
+
   if (InputSourceManager.prototype._updateMruSourcesOrig instanceof Function) {
     InputSourceManager.prototype._updateMruSources =
       InputSourceManager.prototype._updateMruSourcesOrig;
     InputSourceManager.prototype._updateMruSourcesOrig = undefined;
+  }
+
+  if (InputSourceManager.prototype._updateMruSettingsOrig instanceof Function) {
+    InputSourceManager.prototype._updateMruSettings =
+      InputSourceManager.prototype._updateMruSettingsOrig;
+    InputSourceManager.prototype._updateMruSettingsOrig = undefined;
+  }
+
+  // This function is used to get the running instance of InputSourceManager.
+  const _inputSourceManager = getInputSourceManager();
+
+  // Bind to the original function.
+  Main.wm.removeKeybinding("switch-input-source");
+  _inputSourceManager._keybindingAction =
+    Main.wm.addKeybinding(
+      "switch-input-source",
+      new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
+      Meta.KeyBindingFlags.NONE,
+      Shell.ActionMode.ALL,
+      InputSourceManager.prototype._switchInputSource.bind(_inputSourceManager)
+    );
+  Main.wm.removeKeybinding("switch-input-source-backward");
+  _inputSourceManager._keybindingActionBackward =
+    Main.wm.addKeybinding(
+      "switch-input-source-backward",
+      new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
+      Meta.KeyBindingFlags.IS_REVERSED,
+      Shell.ActionMode.ALL,
+      InputSourceManager.prototype._switchInputSource.bind(_inputSourceManager)
+    );
+
+  // Load the MRU list from settings.
+  _inputSourceManager._mruSources = [];
+  _inputSourceManager._mruSourcesBackup = null;
+  _inputSourceManager._updateMruSources();
+  // Reset IME to the first
+  // because InputSourcePopup assume the first one is selected.
+  if (_inputSourceManager._mruSources.length > 0) {
+    _inputSourceManager._mruSources[0].activate(true);
   }
 }
