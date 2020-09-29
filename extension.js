@@ -26,6 +26,8 @@ const {
 } = imports.ui.status.keyboard;
 const Main = imports.ui.main;
 
+let activeSource = null;
+
 function init() {
   // This extension does not use init function.
 }
@@ -119,6 +121,27 @@ function enable() {
       popup.fadeAndDestroy();
     }
   };
+
+  // A dirty hack because iBus will set content type with a password entry,
+  // which will call reload before unlock and after extension enable
+  // so the active source changed before extension enable.
+  // We need to restore what we have before locking.
+  // TODO: Still some problem, there should be a better way.
+  InputSourceManager.prototype.reloadOrig =
+    InputSourceManager.prototype.reload;
+  InputSourceManager.prototype.reload = function () {
+    this._reloading = true;
+    this._keyboardManager.setKeyboardOptions(this._settings.keyboardOptions);
+    this._inputSourcesChanged();
+    // _inputSourcesChanged() will active the first one so we must
+    // restore after it.
+    if (activeSource != null && this._currentSource != activeSource) {
+      activeSource.activate(true);
+      // We only restore once.
+      activeSource = null;
+    }
+    this._reloading = false;
+  }
 
   // A dirty hack to stop loading MRU IME list from settings.
   // This is needed for restoring the user's sequence in settings when enabling.
@@ -237,10 +260,6 @@ function enable() {
   _inputSourceManager._mruSources = [];
   _inputSourceManager._mruSourcesBackup = null;
   _inputSourceManager._updateMruSources();
-  // Reset IME to the first because list was changed.
-  if (_inputSourceManager._mruSources.length > 0) {
-    _inputSourceManager._mruSources[0].activate(true);
-  }
 }
 
 function disable() {
@@ -263,6 +282,12 @@ function disable() {
     InputSourceManager.prototype._switchInputSourceSources =
       InputSourceManager.prototype._switchInputSourceOrig;
     InputSourceManager.prototype._switchInputSourceOrig = undefined;
+  }
+
+  if (InputSourceManager.prototype.reloadOrig instanceof Function) {
+    InputSourceManager.prototype.reload =
+      InputSourceManager.prototype.reloadOrig;
+    InputSourceManager.prototype.reloadOrig = undefined;
   }
 
   if (InputSourceManager.prototype._updateMruSourcesOrig instanceof Function) {
@@ -304,9 +329,14 @@ function disable() {
   _inputSourceManager._mruSources = [];
   _inputSourceManager._mruSourcesBackup = null;
   _inputSourceManager._updateMruSources();
-  // Reset IME to the first
-  // because InputSourcePopup assume the first one is selected.
-  if (_inputSourceManager._mruSources.length > 0) {
-    _inputSourceManager._mruSources[0].activate(true);
+  // Save active source before lock screen.
+  activeSource = _inputSourceManager._currentSource;
+  // InputSourcePopup assume the first one is selected,
+  // so we re-activate current source to make it the first.
+  if (
+    _inputSourceManager._currentSource != null &&
+    _inputSourceManager._mruSources[0] !== _inputSourceManager._currentSource
+  ) {
+    _inputSourceManager._currentSource.activate(true);
   }
 }
