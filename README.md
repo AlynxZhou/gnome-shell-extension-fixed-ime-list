@@ -6,7 +6,7 @@ Make the IME list in fixed sequence instead of MRU.
 
 # Who?
 
-The person who have more then 2 input method engines in GNOME Shell like me (English, Simplified Chinese, Japanese).
+The person who has more then 2 input method engines in GNOME Shell like me (English, Simplified Chinese, Japanese).
 
 # Why?
 
