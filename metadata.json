@@ -4,5 +4,5 @@
   "uuid": "fixedimelist@alynx.one",
   "url": "https://github.com/AlynxZhou/gnome-shell-extension-fixed-ime-list/",
   "version": 9,
-  "shell-version": ["3.36", "3.38", "40", "41", "42", "43"]
+  "shell-version": ["3.36", "3.38", "40", "41", "42", "43", "44"]
 }
