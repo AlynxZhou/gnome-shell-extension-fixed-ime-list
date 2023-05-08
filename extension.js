@@ -74,7 +74,7 @@ function enable() {
     } else {
       this._select(this._next());
     }
-  }
+  };
 
   // A dirty hack to let InputSourcePopup starts from current source
   // instead of 0.
@@ -141,7 +141,7 @@ function enable() {
       activeSource = null;
     }
     this._reloading = false;
-  }
+  };
 
   // A dirty hack to stop loading MRU IME list from settings.
   // This is needed for restoring the user's sequence in settings when enabling.
@@ -230,7 +230,7 @@ function enable() {
 
     this._settings.mruSources = sourcesList;
     */
-  }
+  };
 
   // This function is used to get the running instance of InputSourceManager.
   const _inputSourceManager = getInputSourceManager();
