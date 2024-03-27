@@ -17,89 +17,83 @@
  */
 
 import Gio from "gi://Gio";
+import IBus from 'gi://IBus';
 import Meta from "gi://Meta";
 import Shell from "gi://Shell";
 import {
   getInputSourceManager,
+  InputSource,
   InputSourcePopup,
-  InputSourceManager
+  InputSourceManager,
+  INPUT_SOURCE_TYPE_XKB,
+  INPUT_SOURCE_TYPE_IBUS
 } from "resource:///org/gnome/shell/ui/status/keyboard.js";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import {
   InjectionManager
 } from "resource:///org/gnome/shell/extensions/extension.js";
 
+/**
+ * I already have a MR for gnome-shell to implement fixed IME list, however,
+ * that requires agreement from design team, and I don't know how to achieve it.
+ *
+ * See <https://gitlab.gnome.org/GNOME/gnome-shell/-/merge_requests/2719>.
+ *
+ * This is actually a HACK version of that MR to implement it as an extension.
+ * To understand it, you'd better read that MR first.
+ */
+/**
+ * To reviewers: This extension requires to run in `unlock-dialog` so user won't
+ * get inconsistence about why the IME list is not fixed when pressing
+ * `Super+Space` in lock screen. This also allows it to restore previous source
+ * correctly after entering the password entry in `unlock-dialog`.
+ */
 export default class FixedIMEList {
   constructor() {
-    this._injectionManager = new InjectionManager();
-    this._activeSource = null;
   }
 
   enable() {
+    // To use this extension object, we need to rename it.
+    const that = this;
+    // When we enter a password entry, IBus sources will be filtered out, so
+    // we need a variable to store the previous source, so we could restore it
+    // after leaving the password entry.
+    this._previousFixedSource = null;
+
     // NOTE: Don't use arrow expressions for the function used to inject, we
     // want it to use the calling context, but arrow expressions will bind this
     // extension object to it. Also the document is wrong, it says it will
     // change `this` for you, but actually not.
-
-    // To use this extension object, we need to rename it.
-    const that = this;
-
-    // A dirty hack to stop updating the annoying MRU IME list.
-    this._injectionManager.overrideMethod(
-      InputSourceManager.prototype,
-      "_currentInputSourceChanged",
-      () => {
-        return function (newSource) {
-          let oldSource;
-          [oldSource, this._currentSource] = [this._currentSource, newSource];
-          that._activeSource = this._currentSource;
-
-          this.emit("current-source-changed", oldSource);
-
-          // AZ: Just never do MRU sorting.
-          // for (let i = 1; i < this._mruSources.length; ++i) {
-          //   if (this._mruSources[i] === newSource) {
-          //     let currentSource = this._mruSources.splice(i, 1);
-          //     this._mruSources = currentSource.concat(this._mruSources);
-          //     break;
-          //   }
-          // }
-          this._changePerWindowSource();
-        };
-      }
-    );
+    this._injectionManager = new InjectionManager();
 
     // I don't know why they use hard coded 0 or last when they have
-    // `_selectedIndex` here! Maybe they never consider to use it as a initial
-    // parameter. Anyway this is another dirty hack to let InputSourcePopup init
-    // with `selectedIndex`. Actually this is inherited from SwitcherPopup,
-    // but I don't want to affect others.
+    // `_selectedIndex` here, it is totally OK that we want to start from
+    // non-beginning items.
+    //
+    // Actually `InputSourcePopup` is inherited from `SwitcherPopup`.
     this._injectionManager.overrideMethod(
       InputSourcePopup.prototype,
       "_initialSelection",
       () => {
         return function (backward, _binding) {
-          if (backward) {
+          if (backward)
             this._select(this._previous());
-          } else if (this._items.length === 1) {
+          else if (this._items.length === 1)
             this._select(0);
-          } else {
+          else
             this._select(this._next());
-          }
         };
       }
     );
 
-    // A dirty hack to let InputSourcePopup starts from current source
-    // instead of 0.
+    // Set correct selected item after creating `InputSourcePopup`.
     this._injectionManager.overrideMethod(
       InputSourceManager.prototype,
       "_switchInputSource",
       () => {
         return function (display, window, binding) {
-          if (this._mruSources.length < 2) {
+          if (this._mruSources.length < 2)
             return;
-          }
 
           // HACK: Fall back on simple input source switching since we
           // can't show a popup switcher while a GrabHelper grab is in
@@ -113,125 +107,174 @@ export default class FixedIMEList {
             return;
           }
 
-          let popup = new InputSourcePopup(
-            this._mruSources,
-            this._keybindingAction,
-            this._keybindingActionBackward
-          );
-          // AZ: By default InputSourcePopup starts at 0, this is ok for MRU,
-          // but we need to set popup current index to current source. It's OK
-          // to start from 0 if we don't have current source.
-          if (this._currentSource != null) {
-            popup._selectedIndex =
+          this._switcherPopup = new InputSourcePopup(
+            this._mruSources, this._keybindingAction, this._keybindingActionBackward);
+          if (this._mruSources.includes(this._currentSource)) {
+            this._switcherPopup._selectedIndex =
               this._mruSources.indexOf(this._currentSource);
           }
-
-          if (!popup.show(
-            binding.is_reversed(),
-            binding.get_name(),
-            binding.get_mask()
-          )) {
-            popup.fadeAndDestroy();
-          }
+          this._switcherPopup.connect('destroy', () => {
+            this._switcherPopup = null;
+          });
+          if (!this._switcherPopup.show(
+            binding.is_reversed(), binding.get_name(), binding.get_mask()))
+            this._switcherPopup.fadeAndDestroy();
         };
       }
     );
 
-    // IBus will set content type with a password entry, which will call
-    // `reload()` twice, before and after unlock, and `reload()` changes active
-    // source, so we restore active source we saved.
-    // TODO: There should be a better way, things will be messed if we change
-    // sources when using password entry. And this currently does not solve the
-    // password problem.
+    // There is no need to update the annoying MRU IME list.
     this._injectionManager.overrideMethod(
       InputSourceManager.prototype,
-      "reload",
+      "_currentInputSourceChanged",
       () => {
-        return function () {
-          this._reloading = true;
-          this._keyboardManager.setKeyboardOptions(
-            this._settings.keyboardOptions
-          );
-          this._inputSourcesChanged();
-          // AZ: `_inputSourcesChanged()` will active the first source so we
-          // must restore after it.
-          if (that._activeSource != null &&
-              this._currentSource !== that._activeSource) {
-            that._activeSource.activate(true);
-          }
-          this._reloading = false;
+        return function (newSource) {
+          let oldSource;
+          [oldSource, this._currentSource] = [this._currentSource, newSource];
+
+          this.emit('current-source-changed', oldSource);
+
+          // for (let i = 1; i < this._mruSources.length; ++i) {
+          //   if (this._mruSources[i] === newSource) {
+          //     let currentSource = this._mruSources.splice(i, 1);
+          //     this._mruSources = currentSource.concat(this._mruSources);
+          //     break;
+          //   }
+          // }
+          this._changePerWindowSource();
         };
       }
     );
 
-    // A dirty hack to stop loading MRU sources list from settings.
-    // This is needed because it is also used to load fixed sources list from
-    // GSettings.
+    // Load fixed sources list instead of loading MRU sources list.
     this._injectionManager.overrideMethod(
       InputSourceManager.prototype,
       "_updateMruSources",
       () => {
+        // AZ: I just rewrite this function totally.
         return function () {
           let sourcesList = [];
-          for (let i of Object.keys(this._inputSources).sort((a, b) => {
-            return a - b;
-          })) {
+          for (let i of Object.keys(this._inputSources).sort((a, b) => a - b))
             sourcesList.push(this._inputSources[i]);
+
+          this._keyboardManager.setUserLayouts(sourcesList.map(x => x.xkbId));
+
+          // If we are back from IBus' password mode to normal mode, we need to
+          // try restoring previous source.
+          if (!this._disableIBus && that._previousFixedSource) {
+            const previousSource = sourcesList.find((source) => {
+              return source.type === that._previousFixedSource.type &&
+                source.id === that._previousFixedSource.id;
+            });
+            if (previousSource)
+              previousSource.activate(false);
+            that._previousFixedSource = null;
           }
+          // Because reload will clear `_currentSource`, if we failed to restore
+          // previous source, we will use the first source here.
+          if (this._currentSource == null && sourcesList.length > 0)
+            sourcesList[0].activate(false);
 
-          this._keyboardManager.setUserLayouts(sourcesList.map((x) => {
-            return x.xkbId;
-          }));
-
-          if (!this._disableIBus && this._mruSourcesBackup) {
-            this._mruSources = this._mruSourcesBackup;
-            this._mruSourcesBackup = null;
-          }
-
-          // AZ: We don't care about MRU sources list so skip those codes.
-          // // Initialize from settings when we have no MRU sources list
-          // if (this._mruSources.length === 0) {
-          //   let mruSettings = this._settings.mruSources;
-          //   for (let i = 0; i < mruSettings.length; i++) {
-          //     let mruSettingSource = mruSettings[i];
-          //     let mruSource = null;
-
-          //     for (let j = 0; j < sourcesList.length; j++) {
-          //       let source = sourcesList[j];
-          //       if (source.type === mruSettingSource.type &&
-          //           source.id === mruSettingSource.id) {
-          //         mruSource = source;
-          //         break;
-          //       }
-          //     }
-
-          //     if (mruSource)
-          //       this._mruSources.push(mruSource);
-          //   }
-          // }
-
-
-          let mruSources = [];
-          // AZ: Because we don't use MRU sources list, those codes are useless.
-          // if (this._mruSources.length > 1) {
-          //   for (let i = 0; i < this._mruSources.length; i++) {
-          //     for (let j = 0; j < sourcesList.length; j++) {
-          //       if (this._mruSources[i].type === sourcesList[j].type &&
-          //           this._mruSources[i].id === sourcesList[j].id) {
-          //         mruSources = mruSources.concat(sourcesList.splice(j, 1));
-          //         break;
-          //       }
-          //     }
-          //   }
-          // }
-
-          this._mruSources = mruSources.concat(sourcesList);
+          this._mruSources = sourcesList;
         };
       }
     );
 
-    // A dirty hack to stop updating MRU settings.
-    // Because we stop updating MRU sources list, we also don't touch GSettings.
+    // Stop activating the first item, we already activate the saved one.
+    this._injectionManager.overrideMethod(
+      InputSourceManager.prototype,
+      "_inputSourcesChanged",
+      () => {
+        return function () {
+          let sources = this._settings.inputSources;
+          let nSources = sources.length;
+
+          this._currentSource = null;
+          this._inputSources = {};
+          this._ibusSources = {};
+
+          let infosList = [];
+          for (let i = 0; i < nSources; i++) {
+            let displayName;
+            let shortName;
+            let type = sources[i].type;
+            let id = sources[i].id;
+            let exists = false;
+
+            if (type === INPUT_SOURCE_TYPE_XKB) {
+              [exists, displayName, shortName] =
+                this._xkbInfo.get_layout_info(id);
+            } else if (type === INPUT_SOURCE_TYPE_IBUS) {
+              if (this._disableIBus)
+                continue;
+              let engineDesc = this._ibusManager.getEngineDesc(id);
+              if (engineDesc) {
+                let language = IBus.get_language_name(engineDesc.get_language());
+                let longName = engineDesc.get_longname();
+                let textdomain = engineDesc.get_textdomain();
+                if (textdomain !== '')
+                  longName = Gettext.dgettext(textdomain, longName);
+                exists = true;
+                displayName = `${language} (${longName})`;
+                shortName = this._makeEngineShortName(engineDesc);
+              }
+            }
+
+            if (exists)
+              infosList.push({type, id, displayName, shortName});
+          }
+
+          if (infosList.length === 0) {
+            let type = INPUT_SOURCE_TYPE_XKB;
+            let id = KeyboardManager.DEFAULT_LAYOUT;
+            let [, displayName, shortName] = this._xkbInfo.get_layout_info(id);
+            infosList.push({type, id, displayName, shortName});
+          }
+
+          let inputSourcesByShortName = {};
+          for (let i = 0; i < infosList.length; i++) {
+            let is = new InputSource(infosList[i].type,
+                                     infosList[i].id,
+                                     infosList[i].displayName,
+                                     infosList[i].shortName,
+                                     i);
+            is.connect('activate', this.activateInputSource.bind(this));
+
+            if (!(is.shortName in inputSourcesByShortName))
+              inputSourcesByShortName[is.shortName] = [];
+            inputSourcesByShortName[is.shortName].push(is);
+
+            this._inputSources[is.index] = is;
+
+            if (is.type === INPUT_SOURCE_TYPE_IBUS)
+              this._ibusSources[is.id] = is;
+          }
+
+          for (let i in this._inputSources) {
+            let is = this._inputSources[i];
+            if (inputSourcesByShortName[is.shortName].length > 1) {
+              let sub = inputSourcesByShortName[is.shortName].indexOf(is) + 1;
+              is.shortName += String.fromCharCode(0x2080 + sub);
+            }
+          }
+
+          this.emit('sources-changed');
+
+          this._updateMruSources();
+
+          // AZ: Don't do this, we already done the right things in
+          // `_updateMruSources`.
+          // if (this._mruSources.length > 0)
+          //   this._mruSources[0].activate(false);
+
+          // All ibus engines are preloaded here to reduce the launching time
+          // when users switch the input sources.
+          this._ibusManager.preloadEngines(Object.keys(this._ibusSources));
+        };
+      }
+    );
+
+    // Don't touch GSettings so user can still get MRU list after disabling.
     this._injectionManager.overrideMethod(
       InputSourceManager.prototype,
       "_updateMruSettings",
@@ -261,18 +304,47 @@ export default class FixedIMEList {
       }
     );
 
+    // Sources will be filtered when entering password entry, we need to save
+    // and restore previous source.
+    //
+    // The best place is `_ibusSetContentType()`, but we have no way to
+    // disconnect the signal handler and replace it. However,
+    // `_ibusSetContentType()` will call `reload()`, and the actual clearing
+    // `_currentSource` happens in `_inputSourcesChanged()`, so this is the
+    // best we can achieve.
+    this._injectionManager.overrideMethod(
+      InputSourceManager.prototype,
+      "reload",
+      () => {
+        return function () {
+          this._reloading = true;
+          this._keyboardManager.setKeyboardOptions(this._settings.keyboardOptions);
+          // AZ: We only do this when IBus is disabled.
+          if (this._disableIBus && this._currentSource) {
+            that._previousFixedSource = {
+              type: this._currentSource.type,
+              id: this._currentSource.id
+            };
+          }
+          this._inputSourcesChanged();
+          this._reloading = false;
+        };
+      }
+    );
+
     this.reloadKeybindings();
   }
 
   disable() {
-    this._injectionManager.clear();
+    if (this._injectionManager != null) {
+      this._injectionManager.clear();
+      this._injectionManager = null;
+    }
+    this._previousFixedSource = null;
 
     this.reloadKeybindings();
 
     const _inputSourceManager = getInputSourceManager();
-    // GNOME Shell will disable all extensions before lock, and enable all
-    // extensions after unlock, so we need to save active source.
-    this._activeSource = _inputSourceManager._currentSource;
     // `InputSourcePopup` assume the first one is selected, so we re-activate
     // current source to make it them consistent after disabling extension.
     if (_inputSourceManager._currentSource != null &&
@@ -291,24 +363,24 @@ export default class FixedIMEList {
     Main.wm.removeKeybinding("switch-input-source");
     _inputSourceManager._keybindingAction =
       Main.wm.addKeybinding(
-	"switch-input-source",
-	new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
-	Meta.KeyBindingFlags.NONE,
-	Shell.ActionMode.ALL,
-	InputSourceManager.prototype._switchInputSource.bind(
-	  _inputSourceManager
-	)
+        "switch-input-source",
+        new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
+        Meta.KeyBindingFlags.NONE,
+        Shell.ActionMode.ALL,
+        InputSourceManager.prototype._switchInputSource.bind(
+          _inputSourceManager
+        )
       );
     Main.wm.removeKeybinding("switch-input-source-backward");
     _inputSourceManager._keybindingActionBackward =
       Main.wm.addKeybinding(
-	"switch-input-source-backward",
-	new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
-	Meta.KeyBindingFlags.IS_REVERSED,
-	Shell.ActionMode.ALL,
-	InputSourceManager.prototype._switchInputSource.bind(
-	  _inputSourceManager
-	)
+        "switch-input-source-backward",
+        new Gio.Settings({"schema_id": "org.gnome.desktop.wm.keybindings"}),
+        Meta.KeyBindingFlags.IS_REVERSED,
+        Shell.ActionMode.ALL,
+        InputSourceManager.prototype._switchInputSource.bind(
+          _inputSourceManager
+        )
       );
 
     // Those codes refresh sources list but work differently:
