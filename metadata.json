@@ -3,7 +3,7 @@
   "description": "Make the IME list in fixed sequence instead of MRU.",
   "uuid": "fixedimelist@alynx.one",
   "url": "https://github.com/AlynxZhou/gnome-shell-extension-fixed-ime-list/",
-  "version": 12,
+  "version": 13,
   "session-modes": ["unlock-dialog", "user"],
   "shell-version": ["45", "46"]
 }
