@@ -42,12 +42,6 @@ import {
  * This is actually a HACK version of that MR to implement it as an extension.
  * To understand it, you'd better read that MR first.
  */
-/**
- * To reviewers: This extension requires to run in `unlock-dialog` so user won't
- * get inconsistence about why the IME list is not fixed when pressing
- * `Super+Space` in lock screen. This also allows it to restore previous source
- * correctly after entering the password entry in `unlock-dialog`.
- */
 export default class FixedIMEList {
   constructor() {
   }
