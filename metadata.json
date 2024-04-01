@@ -1,6 +1,6 @@
 {
   "name": "Fixed IME List",
-  "description": "Make the IME list in fixed sequence instead of MRU.",
+  "description": "Prevent MRU re-sorting of IME list on switching input method so it will always be the same sequence as you set in Settings.",
   "uuid": "fixedimelist@alynx.one",
   "url": "https://github.com/AlynxZhou/gnome-shell-extension-fixed-ime-list/",
   "version": 13,

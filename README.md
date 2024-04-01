@@ -1,8 +1,8 @@
 Fixed IME List for GNOME Shell
 ==============================
 
-Make the IME list in fixed sequence instead of MRU.
----------------------------------------------------
+Prevent MRU re-sorting of IME list on switching input method so it will always be the same sequence as you set in Settings.
+---------------------------------------------------------------------------------------------------------------------------
 
 # Usage
 
@@ -13,10 +13,6 @@ $ git clone https://github.com/AlynxZhou/gnome-shell-extension-fixed-ime-list.gi
 or install it from <https://extensions.gnome.org/extension/3663/fixed-ime-list/>.
 
 Then restart GNOME Shell and enable Fixed IME List from GNOME Extensions.
-
-## Wrong IME activated after lock and unlock!
-
-This is likely happens if you are installing it from GNOME Extensions website, on which extensions that modifies keyboard in unlock dialog cannot pass review for security reasons, so that version won't run on unlock dialog, and cannot remember and restore IME before entering password entry. If you want full experience, please clone this repo to install instead of using GNOME Extensions website to install.
 
 # FAQ
 

@@ -329,6 +329,14 @@ export default class FixedIMEList {
     this.reloadKeybindings();
   }
 
+  /**
+   * To reviewers: This extension requires to run in `unlock-dialog` so user
+   * won't get inconsistence about why the IME list is not fixed when pressing
+   * `Super + Space` in lock screen. This also allows it to restore previous
+   * source correctly after entering the password entry in `unlock-dialog`,
+   * otherwise the first source of the MRU list is activated and it might not
+   * be the one user used before entering password.
+   */
   disable() {
     if (this._injectionManager != null) {
       this._injectionManager.clear();
