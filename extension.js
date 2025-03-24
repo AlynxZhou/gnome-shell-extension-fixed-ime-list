@@ -85,7 +85,12 @@ export default class FixedIMEList {
       InputSourceManager.prototype,
       "_switchInputSource",
       () => {
-        return function (display, window, binding) {
+        return function (display, window, event, binding) {
+          // GNOME Shell 48 adds `event` parameter, keep backward compatibility.
+          //
+          // See <https://gjs.guide/extensions/upgrading/gnome-shell-48.html#inputsourcemanager>.
+          binding = binding || event;
+
           if (this._mruSources.length < 2)
             return;
 
