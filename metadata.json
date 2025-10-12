@@ -5,5 +5,5 @@
   "url": "https://github.com/AlynxZhou/gnome-shell-extension-fixed-ime-list/",
   "version": 16,
   "session-modes": ["unlock-dialog", "user"],
-  "shell-version": ["45", "46", "47", "48"]
+  "shell-version": ["45", "46", "47", "48", "49"]
 }
